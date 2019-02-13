@@ -8,6 +8,52 @@ from os import walk
 #A use case for this would be to write python on PC, but execute it on a raspberry pi
 
 
+'''
+To Do: 
+Select local folder
+Select remote Folder
+See data in local folder
+See data in remote folder
+Compare data in each folder
+Add ability to toggle whether to replace local file if remote one is newer
+    By default should the local folder always have the newest file version?
+        Or should whatevr is newest always take priority over both?
+Replace file in remote folder with local file
+Replace file in local folder with remote file
+Make it check the folders on a set timer
+    Add ability to adjust the timer during run time
+
+Add ability to check and copy whole folders and everything in directories, not just the top-most files
+Make logo for project. Probably in the same style as my normal PA
+
+Make a verion that autoruns/auto selects folders without the user having to do anything
+
+Can Python run in the Taskkbar?
+    quick goolgle says maybe: https://stackoverflow.com/questions/9494739/how-to-build-a-systemtray-app-for-windows
+    *.pyw - execute your script in background mode without command prompt
+
+
+Extra Credit:
+Add ability to select both local folders
+See if there is a way to make it check only when there is a change
+    How intesive is it to do a check? 
+        Can it just constanly be checking times on both platforms? Or is it too intesive and should only happen on a timer
+
+
+    extra extra credit: 
+        add ability to select two remote folders?
+        Add ability to slect different chekcing timers for each directory
+            i.e. 30 seconds for local and 60 seconds for remote
+
+
+
+
+'''
+
+
+
+
+
 
 def getDir():
     messagebox.showinfo('Select Directory', 'Please the folder that will be backed up')
@@ -127,13 +173,14 @@ def GetSSH():
                 sys.exit()
 
 def main():
-    #workingDir = getDir()
+    workingDir = getDir()
 
-    #localStats = getLocalStats(workingDir)
+    localStats = getLocalStats(workingDir)
 
     #channel = GetSSH()
-    channel=quickConnect()
-    sshSession(channel)
+
+    #channel=quickConnect()
+    #sshSession(channel)
 
 
 
