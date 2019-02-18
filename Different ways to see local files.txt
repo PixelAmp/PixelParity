@@ -1,0 +1,11 @@
+f = []
+for (dirpath, dirnames, filenames) in walk(WorkingDir):
+    f.extend(filenames)
+    break #if you don't break it will keep doing down into directories
+
+#print(repr(dirpath))
+print(dirpath)
+print('!!!!!!!!')
+print(dirnames)
+print('!!!!!!!!')
+print(filenames)
