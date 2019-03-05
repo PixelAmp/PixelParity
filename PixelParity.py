@@ -1,4 +1,4 @@
-import os, paramiko, sys, time
+import os, paramiko, sys, time, select, re
 from tkinter.filedialog import askdirectory
 from tkinter import messagebox
 from os import walk
@@ -46,11 +46,15 @@ See if there is a way to make it check only when there is a change
             i.e. 30 seconds for local and 60 seconds for remote
 '''
 
-class SSH(object):
-    ip='192.168.0.8'
+class ToolBox(object):
+    ip='192.168.0.19' #'PixelDac.local'
     user='pi'
     password='0000'
-    channel=paramiko.channel.Channel
+    channel=paramiko.SSHClient()
+    #channel.open_sftp() #not initializing, once init SSH gets run it'll be here
+    LocalDir=''
+    RemoteDir=''
+    
 
 def getDir():
     messagebox.showinfo('Select Directory', 'Please the folder that will be backed up')
@@ -58,20 +62,45 @@ def getDir():
     print(WorkingDir)
     return WorkingDir
 
+
+'''
+note to self:
+make this recoursive, have it return a dictionary of the values within that folder.
+If it finds a folder, call this function again and go intide that folder until it returns the values inside if itself
+
+dir: file data, SubDir 
+
+{RootDir: [File, age], [File, age], {SecondDir: [File, age]}}
+
+{PixelParity: ['Different ways to see local files.txt', 'Fileupdater - Copy.pyw', 'PixelParity.py', 'README.md', {testFolder: [testfile.txt]},  ]}
+'''
 def getLocalStats(WorkingDir):
 
     localStats={}
-
-    onlyfiles = [f for f in os.listdir(WorkingDir) if os.path.isfile(os.path.join(WorkingDir, f))]
-
-    for i in range(len(onlyfiles)):
-        localStats[onlyfiles[i]]=[int(os.path.getmtime(WorkingDir+'/'+onlyfiles[i])),WorkingDir+'/'+onlyfiles[i],'']
+    currdir=re.sub(r'.*/', '', WorkingDir)
     
+    localStats.setdefault(currdir, [])
+
+    #get files in directory
+    files = [f for f in os.listdir(WorkingDir) if os.path.isfile(os.path.join(WorkingDir, f))]
+    
+    #fills dictionay with files and their ages
+    for num in range(len(files)):
+        localStats[currdir].append([files[num], os.path.getmtime(WorkingDir+'/'+files[num])])
+    
+    #get sub directories within this directory
+    dir = [f for f in os.listdir(WorkingDir) if os.path.isdir(os.path.join(WorkingDir, f))]
+    
+    #recursively call this function to get the files within the subdirectory
+    for num in range(len(dir)):
+        localStats[currdir].append(getLocalStats(WorkingDir+'/'+dir[num]))
+
     return localStats
+    
     
 def getRemoteStats():
 
-    dir = SendCommand('ls')
+    dir = SSHCommand('ls')
     print('!!!')
     print(repr(dir[0]))
     print('!!!')
@@ -80,169 +109,102 @@ def getRemoteStats():
 
     #print('stat %s -c "%%Y"'%str(dir[0]))
 
-    times = SendCommand("stat %s -c '%%Y'"%str(dir[0]))#, expect=':~$')
+    times = SSHCommand("stat %s -c '%%Y'"%str(dir[0]))#, expect=':~$')
 
     print(times)
 
-    #https://askubuntu.com/questions/818093/permanently-disable-color-in-default-terminal
-    '''
-    Okay I am going to bed fore the night. it is 4:12 am as I write this and I have a thing to do tommorow (today?)
-    seeing normal files works fine, but seeing the newly added file normally 'Red Brick Paradise (demo).mp3' is seen as 
+
+def SSHCommand(command):
+    error = ''
+    output = ''
+
+    stdin, stdout, stderr = ToolBox.channel.exec_command(command)
+
+    error = stderr.read().decode('utf-8')#.replace('\r','')
+    if error:
+        print('error')
+        print(repr(error))
+
+    # Wait for the command to terminate
+    while not stdout.channel.exit_status_ready():
+        # Only print data if there is data to read in the channel
+        if stdout.channel.recv_ready():
+            rl, wl, xl = select.select([stdout.channel], [], [], 0.0)
+            if len(rl) > 0:
+                output = stdout.channel.recv(2048).decode('utf-8').replace('\n','|')
     
-    '\x07m\x070;36mRed Brick PParadise (demo).mp3\x07m' or '?[0m?[00;36mRed Brick Paradise (demo).mp3?[0m'
 
-    not sure if this is because it is an mp3 and therefore it is colored, or if it is because there are spaces.
-        - right now I am leaning more towards the color being the issue. Maybe later I will remove all colrs and that will fix it or I can just flip a swiutch and make it not be weird
-
-
-    '''
+    #print(repr(output))
+    return output
 
 
-
-def ExpectCommand(command, expect,delay=0,timeout=5,RaiseFail=False,bkgColor=True,searchCount=1,WriteToLog = True):
-    '''
-    Thanks Boyang!
-    '''
-    out = []
-    temp = ''
-    line_feed_byte = '\r'.encode('utf-8')
-    
-    if(SSH.channel.send_ready()):
-        if command != '':
-            print('!! Executing command [%s]' % (command))
-        SSH.channel.send(command + '\r')
-    else:
-        print('Unable to send command')
-        return False
-    
-    #time.sleep(1)
-    start = time.time()
-
+def initSSH():
+    ToolBox.channel = paramiko.SSHClient()
+    ToolBox.channel.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        while True:
-            end = time.time()
-            if(end - start) >= timeout:
-                print('[COULD NOT FIND %s]' %expect)
-                if RaiseFail: raise Exception('TimerTimeout')
-                else: return False
-            byt = SSH.channel.recv(1)
-            try: 
-                if byt.decode('utf-8') == '': raise Exception('SocketError')
-            except: pass
-            
-            if byt != b'\n': #this is causing issues with the way raspi works 
-                try: temp += byt.decode('utf-8').rstrip('\r\t')
-                except: pass
-            
-            if byt == line_feed_byte:
-                '''
-                if WriteToLog == True:
-                    print(temp)
-                '''
-                out.append(temp)
-                if expect:
-                    for i in expect.split('|'):
-                        if i in temp:
-                            print('FOUND [%s] '%i)
-                            time.sleep(1)
-                            #channel.send('\x03')#termination
-                            return out
-                elif expect is None and searchCount is not 0: searchCount = searchCount - 1
-                else: 
-                    return out
-                temp = ''
-    except Exception as e:
-        print(e)
+        ToolBox.channel.connect(ToolBox.ip, username=ToolBox.user, password=ToolBox.password, port=22, timeout=2)
+        ToolBox.sftp = ToolBox.channel.open_sftp()
+        print('Successful ssh and sftp\n')
+        return True
+    except:
+        print("SSH Failure")
         return False
-
-
-def SendCommand(command, timeout=3,nBytes=1024,initDelay=0.5, WriteToLog = True):
-	out = []
-	current_buffer = ''
-	if WriteToLog == True:
-		print('!! Executing command [%s] !!'%command)
-	if(SSH.channel.send_ready()): SSH.channel.send(command + '\r')
-	else:
-		print('unable to send command')
-		return
-	time.sleep(initDelay)#initial delay to make sure all the data is buffered
-	
-	while SSH.channel.recv_ready(): ##get all the output bytes and decode the data and remove all the \r\t
-		current_buffer = SSH.channel.recv(nBytes).decode('utf-8').replace('\r','').replace('\t','') 
-		
-	for i in current_buffer.split('\n'): #cleaning the output and removing the executed command from the output list
-		if command not in i and i is not '': out.append(i)	
-	return out
-
-
-
-def quickConnect():#ip,usr,password):
-    connection = paramiko.SSHClient()
-    connection.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    connection.connect(SSH.ip, username=SSH.user, password=SSH.password, port=22, timeout=2)
-    print('successful ssh\n')
-    SSH.channel = connection.invoke_shell()
-    ExpectCommand('',expect=':~$')
-    return SSH.channel
 
 def GetSSH():
     Connection=False
     
     while not Connection:
 
-        hold=input("What is the ip of the device?\n(Leave empty for %s)\n"%SSH.ip)
+        hold=input("What is the ip of the device?\n(Leave empty for %s)\n"%ToolBox.ip)
         if hold != '':
-            SSH.ip = hold
+            ToolBox.ip = hold
 
-        hold=input("What is the username?\n(Leave empty for %s)\n"%SSH.user)
+        hold=input("What is the username?\n(Leave empty for %s)\n"%ToolBox.user)
         if hold != '':
-            SSH.user = hold
+            ToolBox.user = hold
 
-        hold = input("What is the password?\n(Leave empty for %s)\n"%SSH.password)
+        hold = input("What is the password?\n(Leave empty for %s)\n"%ToolBox.password)
         if hold != '':
-            SSH.password = hold
+            ToolBox.password = hold
 
-        try:
-            connection = paramiko.SSHClient()
-            connection.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            connection.connect(SSH.ip, username=SSH.user, password=SSH.password, port=22, timeout=2)
-            print('successful ssh\n')
-            SSH.channel = connection.invoke_shell()
-            ExpectCommand('',expect=':~$')
-            return SSH.channel
-        except Exception as e:
-            print("Cannot Connect")
-            print(e)
+        if not initSSH():
             hold = input("Would you like to try to reconnect? (Y/n)")
-            if hold.lower() != 'y':
+            if hold.lower() != 'n':
                 sys.exit()
+
+
+LocalDir=''
+RemoteDir=''
+def GetFile(Rpath, Lpath):
+    ToolBox.sftp.get(Rpath,Lpath)
+    print("get")
+
+
+def SendFile(Rpath, Lpath):
+    ToolBox.sftp.put(Lpath, Rpath)
+    print("send")
 
 def main():
     
     #workingDir = getDir()
-    #workingDir = 'C:/Users/Pixel Amp/Desktop/PixelParity'
+    workingDir = 'C:/Users/Pixel Amp/Desktop/PixelParity'
+    #workingDir = 
 
-    #localStats = getLocalStats(workingDir)
+    localStats = getLocalStats(workingDir)
 
-    #print(localStats) 
+    print(localStats) 
 
-    quickConnect()
-    getRemoteStats()
     '''
+    initSSH()
+    #getRemoteStats()
+    
     command=''
     print('Enter SSH Command:')
     while command != 'exit':
         command = input()
-        response = SendCommand(command)#, expect=':~$')
+        response = SSHCommand(command)#, expect=':~$')
         print(response)
     '''
-    
-    
-
-
-    
-    
-
 
 
 if __name__ == "__main__":
