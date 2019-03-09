@@ -10,10 +10,11 @@ from os import walk
 
 '''
 To Do: 
-Select local folder
-Select remote Folder
-See data in local folder
-See data in remote folder
+DONE!   Select local folder 
+DONE!   Select remote Folder
+DONE!   See data in local folder
+DONE!   See data in remote folder
+
 Compare data in each folder
 Add ability to toggle whether to replace local file if remote one is newer
     By default should the local folder always have the newest file version?
@@ -47,13 +48,15 @@ See if there is a way to make it check only when there is a change
 '''
 
 class ToolBox(object):
-    ip='192.168.0.19' #'PixelDac.local'
+    ip= 'PixelZero.local' #'192.168.0.19' #'PixelDac.local'
     user='pi'
     password='0000'
     channel=paramiko.SSHClient()
     #channel.open_sftp() #not initializing, once init SSH gets run it'll be here
     LocalDir=''
     RemoteDir=''
+    IgnoreFiles=[]
+    IgnoreDir=['.git']
     
 
 def getDir():
@@ -77,7 +80,7 @@ dir: file data, SubDir
 def getLocalStats(WorkingDir):
 
     localStats={}
-    currdir=re.sub(r'.*/', '', WorkingDir)
+    currdir=re.sub(r'.*/', '', WorkingDir) #gets only the current directory
     
     localStats.setdefault(currdir, [])
 
@@ -86,44 +89,71 @@ def getLocalStats(WorkingDir):
     
     #fills dictionay with files and their ages
     for num in range(len(files)):
-        localStats[currdir].append([files[num], os.path.getmtime(WorkingDir+'/'+files[num])])
+        if files[num] not in ToolBox.IgnoreFiles: #ignore Files
+            localStats[currdir].append([files[num], int(os.path.getmtime(WorkingDir+'/'+files[num]))]) #floor() rounds down. int() truncates if any issues come up with slightly off times, look here
+        else:
+            print("Ignoring %s"%files[num])
     
     #get sub directories within this directory
     dir = [f for f in os.listdir(WorkingDir) if os.path.isdir(os.path.join(WorkingDir, f))]
     
     #recursively call this function to get the files within the subdirectory
     for num in range(len(dir)):
-        localStats[currdir].append(getLocalStats(WorkingDir+'/'+dir[num]))
-
+        if dir[num] not in ToolBox.IgnoreDir: #ignore Folders
+            localStats[currdir].append(getLocalStats(WorkingDir+'/'+dir[num]))
+        else:
+            print("Ignoring %s"%dir[num])
+    
     return localStats
     
     
-def getRemoteStats():
+def getRemoteStats(WorkingDir):
 
-    dir = SSHCommand('ls')
-    print('!!!')
-    print(repr(dir[0]))
-    print('!!!')
-    print(dir[0])
-    print('!!!')
+    localStats={}
+    currdir=re.sub(r'.*/', '', WorkingDir) #gets only the current directory
+    localStats.setdefault(currdir, [])
 
-    #print('stat %s -c "%%Y"'%str(dir[0]))
+    files = SSHCommand('ls %s -p | grep -v /'%WorkingDir, debug=False).split('\n')
+    #indnifiles = files.split('\n')
+    #print(indnifiles)
 
-    times = SSHCommand("stat %s -c '%%Y'"%str(dir[0]))#, expect=':~$')
+    #fills dictionay with files and their ages
+    for num in range(len(files)):
+        if files[num] not in ToolBox.IgnoreFiles and files[num]: #ignore Files
+            #AGE = SSHCommand("stat %s -c '%%Y'"%(files[num]),debug=True)
+            localStats[currdir].append([files[num], int(SSHCommand("stat %s -c '%%Y'"%("'"+WorkingDir+'/'+files[num]+"'")).replace('\n',''))])
 
-    print(times)
+        else: 
+            if files[num]:
+                print("Ignoring %s"%repr(files[num]))
 
 
-def SSHCommand(command):
+    #get sub directories within this directory
+    #if there are no subdirectories an error gets sent out, so I catch it
+    dir = SSHCommand('ls -d %s/*/'%WorkingDir, debug=False, AcceptableError='No such file or directory').split('\n') 
+    
+    #recursively call this function to get the files within the subdirectory
+    for num in range(len(dir)):
+        if dir[num] not in ToolBox.IgnoreDir and dir[num]: #ignore Folders
+            localStats[currdir].append(getRemoteStats(dir[num][:-1]))
+        else:
+            if dir[num]:
+                print("Ignoring %s"%repr(dir[num]))
+    
+    return localStats
+
+def SSHCommand(command, debug=False, AcceptableError=''):
     error = ''
     output = ''
-
+    if debug:
+        print('!!!!! Excecuting "%s" !!!!!'%command)
     stdin, stdout, stderr = ToolBox.channel.exec_command(command)
 
     error = stderr.read().decode('utf-8')#.replace('\r','')
     if error:
-        print('error')
-        print(repr(error))
+        if AcceptableError not in error:
+            print('!!!error!!!')
+            print(repr(error))
 
     # Wait for the command to terminate
     while not stdout.channel.exit_status_ready():
@@ -131,9 +161,9 @@ def SSHCommand(command):
         if stdout.channel.recv_ready():
             rl, wl, xl = select.select([stdout.channel], [], [], 0.0)
             if len(rl) > 0:
-                output = stdout.channel.recv(2048).decode('utf-8').replace('\n','|')
+                output = stdout.channel.recv(4096).decode('utf-8')#.replace('\n','|')
     
-
+    
     #print(repr(output))
     return output
 
@@ -144,7 +174,7 @@ def initSSH():
     try:
         ToolBox.channel.connect(ToolBox.ip, username=ToolBox.user, password=ToolBox.password, port=22, timeout=2)
         ToolBox.sftp = ToolBox.channel.open_sftp()
-        print('Successful ssh and sftp\n')
+        #print('Successful ssh and sftp\n')
         return True
     except:
         print("SSH Failure")
@@ -186,13 +216,21 @@ def SendFile(Rpath, Lpath):
 
 def main():
     
-    #workingDir = getDir()
-    workingDir = 'C:/Users/Pixel Amp/Desktop/PixelParity'
-    #workingDir = 
+    #LocalDir = getDir()
+    LocalDir = 'C:/Users/Pixel Amp/Desktop/PixelParity'
+    RemoteDir = '/home/pi/PixelParity'
 
-    localStats = getLocalStats(workingDir)
+    
+    localStats = getLocalStats(LocalDir)
+    
 
-    print(localStats) 
+    initSSH()
+    remotestats = getRemoteStats(RemoteDir)
+    
+    print('Local:') 
+    print(localStats)
+    print('Remote:')
+    print(remotestats)
 
     '''
     initSSH()
@@ -205,6 +243,7 @@ def main():
         response = SSHCommand(command)#, expect=':~$')
         print(response)
     '''
+    ToolBox.channel.close()
 
 
 if __name__ == "__main__":
