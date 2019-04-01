@@ -147,7 +147,7 @@ def getRemoteStats(WorkingDir):
     return localStats
 
 '''
-5 possiblilitoes for deleting and creating new files:
+5 pssibilities for deleting and creating new files:
 1 Always Delete if file is not found on one to keep parity between the two (though what is the difference between a new file vs a deleted one?)
 2 Never delete - always make sure file is at both places, so if it is missing on one, copy it over
 3 Local drive is law, remote drive is Slave - deletion and addition will only take place on the remote drive because the local drive is always right and remote drive is just a backup #this might be the one I am going to go with until #5 figured out
@@ -183,11 +183,22 @@ def CompareDirectories():
 
 
 #compares current local state to the cached local state to see if files have been added or deleted
-def CompareLocal():
+def CheckChangesLocal():
+    CurrState = getLocalStats(ToolBox.LocalDir)
+
+    if CurrState == ToolBox.LocalStats:
+        print("they are the same")
+    else:
+        print("they are different")
+        print(CurrState)
+        print(ToolBox.LocalStats)
+
+
+
     return False
 
 #compares current remote state to the cached local state to see if files have been added or deleted
-def CompareRemote():
+def CheckChangesRemote():
     return False
 
 
@@ -267,14 +278,19 @@ def EmulateConsole():
         response = SSHCommand(command)
         print(response)
 
-
 def main():
-    initSSH()
+    #initSSH()
     #LocalDir = getDir()
     ToolBox.LocalDir = 'C:/Users/Pixel Amp/Desktop/PixelParity'
     ToolBox.RemoteDir = '/home/pi/PixelParity'
 
-    FirstTimeComparison()
+    ToolBox.LocalStats = getLocalStats(ToolBox.LocalDir)
+
+    input('waiting')
+    
+    CheckChangesLocal()
+
+    #FirstTimeComparison()
 
     ToolBox.channel.close()
 
